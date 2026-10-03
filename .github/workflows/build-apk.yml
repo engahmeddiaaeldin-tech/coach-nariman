@@ -16,6 +16,7 @@ jobs:
           distribution: temurin
           java-version: 17
       - run: npm install
+      - run: npm install @capacitor/local-notifications@^6.0.0
       - run: npm uninstall cordova-plugin-printer
       - run: cp node_modules/xlsx/dist/xlsx.full.min.js www/xlsx.full.min.js
       - name: Print shim
@@ -23,6 +24,46 @@ jobs:
           echo 'window.cordova={plugins:{printer:{print:function(h){window.AndroidPrint.print(h)}}}};' > www/shim.js
           sed -i '0,/<\/head>/s#</head>#<script src="shim.js"></script></head>#' www/index.html
       - run: npx cap add android
+      - name: Notification permission
+        run: |
+          grep -q POST_NOTIFICATIONS android/app/src/main/AndroidManifest.xml || sed -i 's#</manifest>#<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/></manifest>#' android/app/src/main/AndroidManifest.xml
+      - name: App icon
+        run: |
+          pip install pillow
+          rm -rf android/app/src/main/res/mipmap-anydpi-v26
+          python3 - <<'EOF'
+          import os
+          from PIL import Image, ImageDraw
+          S = 1024
+          def base():
+              im = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+              d = ImageDraw.Draw(im)
+              d.rounded_rectangle((0, 0, S, S), radius=220, fill=(31, 36, 48, 255))
+              cy = S // 2
+              d.rounded_rectangle((250, cy - 36, S - 250, cy + 36), radius=30, fill=(242, 242, 242, 255))
+              for x0, x1, h, col in ((190, 260, 400, (232, 102, 74, 255)), (120, 190, 300, (180, 68, 43, 255))):
+                  d.rounded_rectangle((x0, cy - h // 2, x1, cy + h // 2), radius=26, fill=col)
+                  d.rounded_rectangle((S - x1, cy - h // 2, S - x0, cy + h // 2), radius=26, fill=col)
+              return im
+          im = base()
+          res = "android/app/src/main/res"
+          for folder, size in (("mdpi", 48), ("hdpi", 72), ("xhdpi", 96), ("xxhdpi", 144), ("xxxhdpi", 192)):
+              p = os.path.join(res, "mipmap-" + folder)
+              os.makedirs(p, exist_ok=True)
+              small = im.resize((size, size), Image.LANCZOS)
+              small.save(os.path.join(p, "ic_launcher.png"))
+              mask = Image.new("L", (size * 4, size * 4), 0)
+              ImageDraw.Draw(mask).ellipse((0, 0, size * 4 - 1, size * 4 - 1), fill=255)
+              mask = mask.resize((size, size), Image.LANCZOS)
+              rnd = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+              full = Image.new("RGBA", (size, size), (31, 36, 48, 255))
+              full.paste(small, (0, 0), small)
+              rnd.paste(full, (0, 0), mask)
+              rnd.save(os.path.join(p, "ic_launcher_round.png"))
+              fg = os.path.join(p, "ic_launcher_foreground.png")
+              if os.path.exists(fg):
+                  os.remove(fg)
+          EOF
       - name: Native print bridge
         run: |
           mkdir -p android/app/src/main/java/com/coachnariman/app
