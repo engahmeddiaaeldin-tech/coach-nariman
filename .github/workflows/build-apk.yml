@@ -21,7 +21,7 @@ jobs:
       - name: Print shim
         run: |
           echo 'window.cordova={plugins:{printer:{print:function(h){window.AndroidPrint.print(h)}}}};' > www/shim.js
-          sed -i 's#</head>#<script src="shim.js"></script></head>#' www/index.html
+          sed -i '0,/<\/head>/s#</head>#<script src="shim.js"></script></head>#' www/index.html
       - run: npx cap add android
       - name: Native print bridge
         run: |
