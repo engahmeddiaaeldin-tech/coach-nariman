@@ -28,6 +28,12 @@ button.g{background:transparent;color:var(--tx);border:1px solid var(--bd)}
 .s b{color:var(--mu);font-size:13px}
 .hd{font-size:11px;color:var(--mu)}
 .cnt{font-size:13px;color:var(--mu);margin:6px 0}
+.lk{flex:0 0 auto;display:inline-block;padding:8px 12px;border:1px solid var(--bd);border-radius:8px;color:var(--tx);text-decoration:none;font-size:14px}
+.chk{display:flex;align-items:center;gap:8px;font-size:15px;color:var(--tx);margin:6px 0}
+.al{display:flex;justify-content:space-between;gap:8px;align-items:center;width:100%;text-align:right;margin:4px 0;padding:9px 12px;border-radius:8px;font-size:14px}
+.al.red{background:#fde8e4;color:#8a2412;border:1px solid #f1b7ab}
+.al.org{background:#fff3dc;color:#7a5200;border:1px solid #f0d39a}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .al.red{background:#4a1f18;color:#ffb4a5;border-color:#7a3226}:root:not([data-theme="light"]) .al.org{background:#4a3a14;color:#ffd98a;border-color:#7a6226}}
 #sheet{display:none}
 @media print{
  .app{display:none}
@@ -46,7 +52,8 @@ button.g{background:transparent;color:var(--tx);border:1px solid var(--bd)}
 </head>
 <body>
 <div class="app">
- <h1>Coach Nariman💪</h1><div id="acc">جارٍ التحقق من الحساب…</div>
+ <h1>Coach Nariman💪</h1>
+ <div id="alerts"></div>
  <div class="card">
   <div class="bar">
    <select id="sel" onchange="cur=+this.value;render()"></select>
@@ -58,10 +65,11 @@ button.g{background:transparent;color:var(--tx);border:1px solid var(--bd)}
 </div>
 <div id="sheet"></div>
 <script>
-const K='pt_trainees_v1';let T=[],cur=0;
+const K='pt_trainees_v1';let T=[],cur=0,PL=null,rt=null;
+function blank(){return{name:'',phone:'',no:'',membership:'',paid:'',start:'',expiry:'',trainer:'',pr:false,s:Array.from({length:30},()=>({d:'',t:'',r:'',g:false}))}}
 function fix(a){return a.map(t=>{const b=Object.assign(blank(),t);while(b.s.length<30)b.s.push({d:'',t:'',r:'',g:false});return b})}
 function loadLocal(){try{T=JSON.parse(localStorage.getItem(K))||[]}catch(e){T=[]}T=fix(T);if(!T.length)T=[blank()]}
-function save(){try{localStorage.setItem(K,JSON.stringify(T))}catch(e){}}
+function save(){try{localStorage.setItem(K,JSON.stringify(T))}catch(e){}clearTimeout(rt);rt=setTimeout(scheduleReminders,2000)}
 async function dl(name,data,type){
  const C=window.Capacitor;
  if(C&&C.isNativePlatform&&C.isNativePlatform()){
@@ -71,22 +79,55 @@ async function dl(name,data,type){
   const r=await P.Filesystem.writeFile({path:name,data:b,directory:'CACHE'});
   await P.Share.share({title:name,url:r.uri,dialogTitle:'احفظ الملف أو ابعته'});return}
  const u=URL.createObjectURL(new Blob([data],{type}));const l=document.createElement('a');l.href=u;l.download=name;document.body.appendChild(l);l.click();l.remove();setTimeout(()=>URL.revokeObjectURL(u),4000)}
-function acc(m){const e=document.getElementById('acc');if(e)e.textContent=m}
-function blank(){return{name:'',no:'',membership:'',paid:'',start:'',expiry:'',trainer:'',s:Array.from({length:30},()=>({d:'',t:'',r:'',g:false}))}}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function addT(){T.push(blank());cur=T.length-1;save();render()}
 function delT(){if(!confirm('حذف هذا المتدرب وكل بياناته؟'))return;T.splice(cur,1);if(!T.length)T=[blank()];cur=0;save();render()}
-function f(k,v){T[cur][k]=v;save();if(k==='name')fillSel()}
+function f(k,v){T[cur][k]=v;save();if(k==='name'){fillSel();renderSel()}if(k==='expiry')renderAlerts()}
 function sv(i,k,v){T[cur].s[i][k]=v;save();cnt()}
 function today(){const n=new Date(),p=x=>String(x).padStart(2,'0');return{d:n.getFullYear()+'-'+p(n.getMonth()+1)+'-'+p(n.getDate()),t:p(n.getHours())+':'+p(n.getMinutes())}}
 function quick(){const a=T[cur].s,i=a.findIndex(x=>!x.d);if(i<0){alert('كل الـ30 حصة مسجلة');return}const n=today();a[i].d=n.d;a[i].t=n.t;save();render()}
-function done(){return T[cur].s.filter(x=>x.d).length}
-function cnt(){const e=document.getElementById('cnt');if(e)e.textContent='الحصص المسجلة: '+done()+' / 30'}
+function doneOf(t){return t.s.filter(x=>x.d).length}
+function cnt(){const e=document.getElementById('cnt');if(e)e.textContent='الحصص المسجلة: '+doneOf(T[cur])+' / 30'}
 function fillSel(){document.getElementById('sel').innerHTML=T.map((t,i)=>`<option value="${i}" ${i===cur?'selected':''}>${esc(t.name||'متدرب جديد')}</option>`).join('')}
-function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+/* ---- phone ---- */
+function waNum(p){let d=String(p||'').replace(/\D/g,'');if(d.startsWith('00'))d=d.slice(2);else if(d.startsWith('0'))d='20'+d.slice(1);return d}
+function updLinks(){const e=document.getElementById('lk');if(!e)return;const p=(T[cur].phone||'').trim();
+ e.innerHTML=p?`<a class="lk" href="tel:${esc(p.replace(/\s/g,''))}">📞 اتصال</a><a class="lk" href="https://wa.me/${waNum(p)}">💬 واتساب</a>`:''}
+/* ---- expiry reminders ---- */
+function daysLeft(t){if(!t.expiry)return null;const e=new Date(t.expiry+'T00:00:00'),n=new Date();n.setHours(0,0,0,0);return Math.round((e-n)/864e5)}
+function dtxt(d){return d<0?'انتهى من '+(-d)+' يوم':d===0?'ينتهي اليوم':d===1?'ينتهي غدًا':'ينتهي بعد '+d+' أيام'}
+function renderAlerts(){
+ const L=[];T.forEach((t,i)=>{const d=daysLeft(t);if(d!==null&&d<=7)L.push({i,t,d})});
+ L.sort((a,b)=>a.d-b.d);
+ document.getElementById('alerts').innerHTML=L.length?`<div class="card"><b>⏰ اشتراكات قاربت على الانتهاء</b>`+L.map(x=>`<button class="al ${x.d<=0?'red':'org'}" onclick="cur=${x.i};render();window.scrollTo(0,0)"><span>${esc(x.t.name||'متدرب')}</span><span>${dtxt(x.d)} · متبقي ${30-doneOf(x.t)} حصة</span></button>`).join('')+`</div>`:''}
+async function scheduleReminders(){
+ const C=window.Capacitor;if(!(C&&C.isNativePlatform&&C.isNativePlatform()))return;
+ const LN=C.Plugins&&C.Plugins.LocalNotifications;if(!LN)return;
+ try{
+  let p=await LN.checkPermissions();if(p.display!=='granted'){p=await LN.requestPermissions();if(p.display!=='granted')return}
+  const pend=await LN.getPending();if(pend.notifications&&pend.notifications.length)await LN.cancel({notifications:pend.notifications});
+  const list=[],now=Date.now();let id=1;
+  T.forEach(t=>{if(!t.expiry)return;const nm=t.name||'متدرب';
+   [[3,'ينتهي بعد 3 أيام'],[0,'ينتهي اليوم']].forEach(a=>{
+    const at=new Date(t.expiry+'T09:00:00');at.setDate(at.getDate()-a[0]);
+    if(at.getTime()>now)list.push({id:id++,title:'تذكير بانتهاء الاشتراك',body:'اشتراك '+nm+' '+a[1],schedule:{at}})})});
+  if(list.length)await LN.schedule({notifications:list});
+ }catch(e){}
+}
+/* ---- selection for printing ---- */
+function selCount(){return T.filter(t=>t.pr).length}
+function renderSel(){
+ const e=document.getElementById('selbox');if(!e)return;
+ e.innerHTML=T.map((t,i)=>`<label class="chk"><input type="checkbox" ${t.pr?'checked':''} onchange="T[${i}].pr=this.checked;save();updPsb()"><span>${esc(t.name||'متدرب جديد')}</span></label>`).join('');updPsb()}
+function updPsb(){const b=document.getElementById('psb');if(b)b.textContent='🖨️ طباعة المحدد ('+selCount()+')'}
+function selAll(v){T.forEach(t=>t.pr=v);save();renderSel()}
+function printSel(){const l=T.filter(t=>t.pr);if(!l.length){alert('علّم على متدرب واحد على الأقل');return}printPages(l)}
+/* ---- screen ---- */
 function render(){
- fillSel();const t=T[cur];
- const inp=(k,l,ty)=>`<div><label>${l}</label><input type="${ty||'text'}" value="${esc(t[k])}" oninput="f('${k}',this.value)"></div>`;
+ fillSel();const t=T[cur];renderAlerts();
+ const inp=(k,l,ty,ex)=>`<div><label>${l}</label><input type="${ty||'text'}" value="${esc(t[k])}" oninput="f('${k}',this.value)" ${ex||''}></div>`;
  let h=`<div class="card"><div class="row">${inp('name','الاسم')}${inp('no','رقم الإيصال / العقد')}</div>
+ <div class="row" style="margin-top:8px"><div><label>رقم التليفون</label><input type="tel" inputmode="tel" value="${esc(t.phone)}" oninput="f('phone',this.value);updLinks()"></div><div id="lk" class="row" style="align-items:flex-end;flex:0 1 auto"></div></div>
  <div class="row" style="margin-top:8px">${inp('membership','الاشتراك')}${inp('paid','المدفوع')}</div>
  <div class="row" style="margin-top:8px">${inp('start','تاريخ البداية','date')}${inp('expiry','تاريخ الانتهاء','date')}</div>
  <div class="row" style="margin-top:8px">${inp('trainer','اسم المدرب')}</div></div>
@@ -94,30 +135,36 @@ function render(){
  <div class="cnt" id="cnt"></div>
  <div class="s hd"><span>#</span><span>التاريخ</span><span>الوقت</span><span>التقييم</span><span>✍️</span></div>`;
  t.s.forEach((x,i)=>{h+=`<div class="s"><b>${i+1}</b><input type="date" value="${x.d}" onchange="sv(${i},'d',this.value)"><input type="time" value="${x.t}" onchange="sv(${i},'t',this.value)"><select onchange="sv(${i},'r',this.value)"><option value="">—</option><option value="F" ${x.r==='F'?'selected':''}>Fair</option><option value="G" ${x.r==='G'?'selected':''}>Good</option><option value="E" ${x.r==='E'?'selected':''}>Excellent</option></select><input type="checkbox" ${x.g?'checked':''} onchange="sv(${i},'g',this.checked)"></div>`});
- h+=`</div><div class="row"><button onclick="doPrint()">🖨️ طباعة الشيت</button></div>
- <div class="card" style="margin-top:12px"><b>النسخ الاحتياطي</b><div class="cnt">احفظ نسخة بكل المتدربين، واسترجعها وقت ما تحتاج (حتى على جهاز تاني).</div>
+ h+=`</div><div class="row"><button onclick="printPages([T[cur]])">🖨️ طباعة شيت هذا المتدرب</button></div>
+ <div class="card" style="margin-top:12px"><b>طباعة أكتر من متدرب</b><div class="cnt">علّم على المتدربين المطلوبين، وكل واحد هيطلع في صفحة لوحده.</div>
+ <div class="row" style="margin-bottom:6px"><button class="g" onclick="selAll(true)">تحديد الكل</button><button class="g" onclick="selAll(false)">إلغاء التحديد</button></div>
+ <div id="selbox"></div><div class="row" style="margin-top:8px"><button id="psb" onclick="printSel()"></button></div></div>
+ <div class="card"><b>النسخ الاحتياطي</b><div class="cnt">احفظ نسخة بكل المتدربين، واسترجعها وقت ما تحتاج (حتى على جهاز تاني).</div>
  <div class="row"><button onclick="backup()">⬇️ حفظ نسخة احتياطية</button><button class="g" onclick="document.getElementById('imp').click()">⬆️ استرجاع نسخة</button></div>
  <div class="row" style="margin-top:8px"><button onclick="toXlsx()">📊 تصدير إلى Excel</button></div>
  <input type="file" id="imp" accept=".json,application/json" style="display:none" onchange="restore(this)"><div class="cnt" id="msg"></div></div>`;
- document.getElementById('main').innerHTML=h;cnt();buildSheet();
+ document.getElementById('main').innerHTML=h;cnt();updLinks();renderSel();
 }
-function buildSheet(){
- const t=T[cur],m={F:1,G:2,E:3};
- let r=t.s.map((x,i)=>`<tr><td>${i+1}</td><td>${x.d}</td><td>${x.t}</td><td>${x.r==='F'?'✓':''}</td><td>${x.r==='G'?'✓':''}</td><td>${x.r==='E'?'✓':''}</td><td>${x.g?'✓':''}</td></tr>`).join('');
- document.getElementById('sheet').innerHTML=`<h2>PRIVATE SESSION</h2><div class="pill">No. ${esc(t.no)}</div>
- <div class="info"><div>Name: ${esc(t.name)}</div><div>Membership: ${esc(t.membership)}</div><div>Paid: ${esc(t.paid)}</div><div>Trainer: ${esc(t.trainer)}</div><div>Starting date: ${t.start}</div><div>Expiry date: ${t.expiry}</div></div>
- <table><tr><th>NO.</th><th>DATE</th><th>TIME</th><th>FAIR</th><th>GOOD</th><th>EXCELLENT</th><th>SIGN</th></tr>${r}</table>`;
-}
-function doPrint(){buildSheet();
+/* ---- print ---- */
+function sheetHtml(t){
+ const r=t.s.map((x,i)=>`<tr><td>${i+1}</td><td>${x.d}</td><td>${x.t}</td><td>${x.r==='F'?'✓':''}</td><td>${x.r==='G'?'✓':''}</td><td>${x.r==='E'?'✓':''}</td><td>${x.g?'✓':''}</td></tr>`).join('');
+ return `<h2>PRIVATE SESSION</h2><div class="pill">No. ${esc(t.no)}</div>
+ <div class="info"><div>Name: ${esc(t.name)}</div><div>Phone: ${esc(t.phone)}</div><div>Membership: ${esc(t.membership)}</div><div>Paid: ${esc(t.paid)}</div><div>Trainer: ${esc(t.trainer)}</div><div></div><div>Starting date: ${t.start}</div><div>Expiry date: ${t.expiry}</div></div>
+ <table><tr><th>NO.</th><th>DATE</th><th>TIME</th><th>FAIR</th><th>GOOD</th><th>EXCELLENT</th><th>SIGN</th></tr>${r}</table>`}
+function pagesHtml(l){return l.map((t,i)=>`<div style="page-break-after:${i<l.length-1?'always':'auto'}">${sheetHtml(t)}</div>`).join('')}
+function setSheet(){document.getElementById('sheet').innerHTML=pagesHtml(PL||[T[cur]])}
+const SHEETCSS='body{font-family:Arial,sans-serif;font-size:12px;color:#000}h2{text-align:center;margin:0 0 6px;font-size:20px}.pill{text-align:center;margin-bottom:8px}.info{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin-bottom:8px}.info div{border-bottom:1px solid #000;padding:2px 0;min-height:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #000;padding:2px;text-align:center;height:21px;font-size:11px}';
+function printPages(l){PL=l;setSheet();
  const p=window.cordova&&cordova.plugins&&cordova.plugins.printer;
- if(p){const css='body{font-family:Arial,sans-serif;font-size:12px;color:#000}h2{text-align:center;margin:0 0 6px;font-size:20px}.pill{text-align:center;margin-bottom:8px}.info{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin-bottom:8px}.info div{border-bottom:1px solid #000;padding:2px 0;min-height:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #000;padding:2px;text-align:center;height:21px;font-size:11px}';
-  p.print('<html><head><meta charset="utf-8"><style>'+css+'</style></head><body>'+document.getElementById('sheet').innerHTML+'</body></html>',{name:'Coach Nariman'});return}
+ if(p){p.print('<html><head><meta charset="utf-8"><style>'+SHEETCSS+'</style></head><body>'+document.getElementById('sheet').innerHTML+'</body></html>',{name:'Coach Nariman'});return}
  try{window.print()}catch(e){alert('الطباعة غير متاحة')}}
-window.addEventListener('beforeprint',buildSheet);
+window.addEventListener('beforeprint',setSheet);
+window.addEventListener('afterprint',()=>{PL=null});
+/* ---- export / backup ---- */
 function say(m){const e=document.getElementById('msg');if(e)e.textContent=m}
 async function toXlsx(){
- const R={F:'Fair',G:'Good',E:'Excellent'},sum=[['الاسم','رقم الإيصال','الاشتراك','المدفوع','البداية','الانتهاء','المدرب','الحصص المنفذة','من']],all=[['الاسم','رقم الإيصال','رقم الحصة','التاريخ','الوقت','التقييم','التوقيع']];
- T.forEach(t=>{sum.push([t.name,t.no,t.membership,t.paid,t.start,t.expiry,t.trainer,t.s.filter(x=>x.d).length,30]);
+ const R={F:'Fair',G:'Good',E:'Excellent'},sum=[['الاسم','التليفون','رقم الإيصال','الاشتراك','المدفوع','البداية','الانتهاء','المدرب','الحصص المنفذة','من']],all=[['الاسم','رقم الإيصال','رقم الحصة','التاريخ','الوقت','التقييم','التوقيع']];
+ T.forEach(t=>{sum.push([t.name,t.phone,t.no,t.membership,t.paid,t.start,t.expiry,t.trainer,doneOf(t),30]);
   t.s.forEach((x,i)=>{if(x.d||x.t||x.r||x.g)all.push([t.name,t.no,i+1,x.d,x.t,R[x.r]||'',x.g?'نعم':''])})});
  const n=new Date().toISOString().slice(0,10);
  try{
@@ -125,12 +172,12 @@ async function toXlsx(){
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(sum),'المتدربين');XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(all),'الحصص');
   await dl('coach-nariman-'+n+'.xlsx',XLSX.write(wb,{type:'array',bookType:'xlsx'}),'application/octet-stream');say('تم تصدير ملف Excel ✓')
  }catch(e){
-  const q=v=>'"'+String(v).replace(/"/g,'""')+'"';
-  await dl('coach-nariman-'+n+'.csv','\ufeff'+all.map(r=>r.map(q).join(',')).join('\r\n'),'text/csv;charset=utf-8');say('بدون إنترنت: تم التصدير بصيغة CSV (يفتح في Excel)')
+  const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  await dl('coach-nariman-'+n+'.csv','﻿'+all.map(r=>r.map(q).join(',')).join('\r\n'),'text/csv;charset=utf-8');say('تم التصدير بصيغة CSV (يفتح في Excel)')
  }}
 async function backup(){
  const n=new Date().toISOString().slice(0,10),data=JSON.stringify({app:'pt-tracker',v:1,trainees:T},null,1);
- try{await dl('pt-backup-'+n+'.json',data,'application/json');say('تم تجهيز النسخة الاحتياطية ✓ (راجع التنزيلات)')}
+ try{await dl('pt-backup-'+n+'.json',data,'application/json');say('تم تجهيز النسخة الاحتياطية ✓')}
  catch(e){try{navigator.clipboard.writeText(data);say('تم نسخ البيانات للحافظة، الصقها في ملاحظة أو واتساب')}catch(_){say('تعذر الحفظ')}}
 }
 function restore(inp){
@@ -143,7 +190,7 @@ function restore(inp){
  }catch(e){say('الملف غير صالح')}};
  r.readAsText(f);inp.value='';
 }
-loadLocal();render();acc('نسخة مستقلة: البيانات محفوظة على هذا الجهاز');
+loadLocal();render();scheduleReminders();
 </script>
 </body>
 </html>
