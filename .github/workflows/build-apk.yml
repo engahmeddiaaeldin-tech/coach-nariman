@@ -16,8 +16,58 @@ jobs:
           distribution: temurin
           java-version: 17
       - run: npm install
+      - run: npm uninstall cordova-plugin-printer
       - run: cp node_modules/xlsx/dist/xlsx.full.min.js www/xlsx.full.min.js
+      - name: Print shim
+        run: |
+          echo 'window.cordova={plugins:{printer:{print:function(h){window.AndroidPrint.print(h)}}}};' > www/shim.js
+          sed -i 's#</head>#<script src="shim.js"></script></head>#' www/index.html
       - run: npx cap add android
+      - name: Native print bridge
+        run: |
+          mkdir -p android/app/src/main/java/com/coachnariman/app
+          cat > android/app/src/main/java/com/coachnariman/app/MainActivity.java <<'EOF'
+          package com.coachnariman.app;
+
+          import android.content.Context;
+          import android.os.Bundle;
+          import android.print.PrintAttributes;
+          import android.print.PrintManager;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+            private WebView printView;
+
+            public class PrintBridge {
+              @JavascriptInterface
+              public void print(final String html) {
+                runOnUiThread(new Runnable() {
+                  @Override
+                  public void run() {
+                    printView = new WebView(MainActivity.this);
+                    printView.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public void onPageFinished(WebView view, String url) {
+                        PrintManager pm = (PrintManager) MainActivity.this.getSystemService(Context.PRINT_SERVICE);
+                        pm.print("Coach Nariman", view.createPrintDocumentAdapter("Coach Nariman"), new PrintAttributes.Builder().build());
+                      }
+                    });
+                    printView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
+                  }
+                });
+              }
+            }
+
+            @Override
+            public void onCreate(Bundle savedInstanceState) {
+              super.onCreate(savedInstanceState);
+              getBridge().getWebView().addJavascriptInterface(new PrintBridge(), "AndroidPrint");
+            }
+          }
+          EOF
       - run: npx cap sync android
       - run: cd android && chmod +x gradlew && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
